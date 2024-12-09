@@ -44,7 +44,6 @@
       padding: 10px 20px;
       cursor: pointer;
       border-radius: 4px;
-      margin-right: 10px;
     }
     form button:hover {
       background-color: #003366;
@@ -63,6 +62,17 @@
     .qr-code {
       display: block;
       margin: 10px 0;
+    }
+    .search-bar {
+      max-width: 600px;
+      margin: 20px auto;
+      text-align: center;
+    }
+    .search-bar input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
     }
   </style>
 </head>
@@ -84,8 +94,12 @@
     <label for="agencia">Agencia:</label>
     <input type="text" id="agencia" required>
     <button type="button" id="add-collaborator">Agregar Colaborador</button>
-    <button type="button" id="new-record">Nuevo Registro</button>
   </form>
+
+  <div class="search-bar">
+    <input type="text" id="search-input" placeholder="Buscar colaborador por nombre u operador...">
+  </div>
+
   <div class="collaborator-list" id="collaborator-list">
     <h2>Lista de Colaboradores</h2>
   </div>
@@ -94,11 +108,58 @@
     const form = document.getElementById('collaborator-form');
     const collaboratorList = document.getElementById('collaborator-list');
     const addCollaboratorButton = document.getElementById('add-collaborator');
-    const newRecordButton = document.getElementById('new-record');
+    const searchInput = document.getElementById('search-input');
 
-    const baseUrl = window.location.origin; // Base URL for the repository (e.g., GitHub Pages)
+    const STORAGE_KEY = 'collaborators';
+    const GITHUB_USERNAME = 'Festuardo'; // Cambia esto por tu usuario de GitHub
+    const REPO_NAME = 'QRColaboradores'; // Cambia esto por el nombre de tu repositorio
+    const BRANCH = 'main'; // Cambia esto si tu rama principal tiene otro nombre
+    const TOKEN = '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'; // Cambia esto por tu token personal de acceso
+    const BASE_URL = `https://api.github.com/repos/${GITHUB_USERNAME}/${REPO_NAME}/contents/Colaboradores`;
 
-    addCollaboratorButton.addEventListener('click', () => {
+    // Cargar colaboradores desde localStorage
+    function loadCollaborators() {
+      const collaborators = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      collaborators.forEach(renderCollaborator);
+    }
+
+    // Guardar colaboradores en localStorage
+    function saveCollaborator(collaborator) {
+      const collaborators = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      collaborators.push(collaborator);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(collaborators));
+    }
+
+    // Eliminar un colaborador de localStorage
+    function deleteCollaborator(operador) {
+      let collaborators = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      collaborators = collaborators.filter(c => c.operador !== operador);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(collaborators));
+    }
+
+    // Renderizar un colaborador en la lista
+    function renderCollaborator({ nombre, operador }) {
+      const qrUrl = `https://festuardo.github.io/QRColaboradores/Colaboradores/${operador}.html`;
+      const collaboratorItem = document.createElement('div');
+      collaboratorItem.className = 'collaborator-item';
+      collaboratorItem.setAttribute('data-nombre', nombre.toLowerCase());
+      collaboratorItem.setAttribute('data-operador', operador.toLowerCase());
+      collaboratorItem.innerHTML = `
+        <p><strong>${nombre} (${operador})</strong></p>
+        <canvas class="qr-code" id="qr-${operador}"></canvas>
+        <button type="button" onclick="removeCollaborator('${operador}')">Eliminar</button>
+      `;
+      collaboratorList.appendChild(collaboratorItem);
+
+      const qr = new QRious({
+        element: document.getElementById(`qr-${operador}`),
+        value: qrUrl,
+        size: 150,
+      });
+    }
+
+    // Agregar un nuevo colaborador
+    addCollaboratorButton.addEventListener('click', async () => {
       const nombre = document.getElementById('nombre').value;
       const operador = document.getElementById('operador').value;
       const dpi = document.getElementById('dpi').value;
@@ -111,10 +172,6 @@
         return;
       }
 
-      const collaboratorId = operador.toLowerCase().replace(/ /g, '_');
-      const collaboratorUrl = `${baseUrl}/${collaboratorId}.html`;
-
-      // Crear la página del colaborador
       const collaboratorHtml = `
 <!DOCTYPE html>
 <html lang="es">
@@ -164,46 +221,49 @@
 </html>
       `;
 
-      const blob = new Blob([collaboratorHtml], { type: 'text/html' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${collaboratorId}.html`;
-      a.click();
+      const contentBase64 = btoa(unescape(encodeURIComponent(collaboratorHtml))); // Codificar en base64
+      const fileName = `${operador}.html`;
 
-      // Agregar colaborador a la lista
-      const collaboratorItem = document.createElement('div');
-      collaboratorItem.className = 'collaborator-item';
-      collaboratorItem.innerHTML = `
-        <p><strong>${nombre} (${operador})</strong> - <a href="${collaboratorUrl}" target="_blank">Ver Perfil</a></p>
-        <canvas class="qr-code" id="qr-${collaboratorId}"></canvas>
-        <button type="button" onclick="downloadQr('${collaboratorId}')">Descargar QR</button>
-      `;
-      collaboratorList.appendChild(collaboratorItem);
+      try {
+        const response = await fetch(`${BASE_URL}/${fileName}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: `Agregar colaborador ${nombre}`,
+            content: contentBase64,
+            branch: BRANCH,
+          }),
+        });
 
-      // Generar código QR
-      const qr = new QRious({
-        element: document.getElementById(`qr-${collaboratorId}`),
-        value: collaboratorUrl,
-        size: 150,
-      });
-
-      // Limpiar formulario
-      form.reset();
+        if (response.ok) {
+          alert('Archivo guardado en la carpeta Colaboradores del repositorio.');
+          const collaborator = { nombre, operador };
+          saveCollaborator(collaborator);
+          renderCollaborator(collaborator);
+          form.reset();
+        } else {
+          const errorData = await response.json();
+          console.error('Error:', errorData);
+          alert('Error al guardar el archivo en GitHub.');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Error al conectarse con GitHub.');
+      }
     });
 
-    // Función para limpiar el formulario
-    newRecordButton.addEventListener('click', () => {
-      form.reset();
-    });
-
-    // Función para descargar la imagen del QR
-    function downloadQr(id) {
-      const canvas = document.getElementById(`qr-${id}`);
-      const link = document.createElement('a');
-      link.download = `${id}-qr.png`;
-      link.href = canvas.toDataURL();
-      link.click();
+    function removeCollaborator(operador) {
+      if (confirm('¿Seguro que deseas eliminar este registro?')) {
+        deleteCollaborator(operador);
+        document.querySelector(`.collaborator-item[data-operador="${operador.toLowerCase()}"]`).remove();
+      }
     }
+
+    // Inicializar la lista de colaboradores al cargar la página
+    loadCollaborators();
   </script>
 </body>
 </html>
